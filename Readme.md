@@ -9,15 +9,15 @@ The install procedure is managed by [CMake](http://cmake.org)
 
 ### Dependencies
 
-* MySQL client cpp dev library
-* jsoncpp. Only if you want to build the package with DQMViz
-* dim
+* MySQL client dev library (libmysqlclient-dev)
+* Json cpp library (jsoncpp)
+* [dim](http://dim.web.cern.ch/dim/) 
 
 Optionally :
 
- * Qt. Developed with version 4.7.4
- * Wt.
- * Doxygen
+ * Qt (qt4-dev)
+ * Wt (witty-dev)
+ * Doxygen (doxygen)
 
 In the root directory :
 
