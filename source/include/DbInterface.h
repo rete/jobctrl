@@ -32,6 +32,7 @@
 // -- mysql headers
 #include <mysql.h>
 
+// -- procctrl headers
 #include "ProcCtrlInternal.h"
 
 namespace procctrl {
@@ -55,26 +56,20 @@ namespace procctrl {
     /**
      *  @brief  Connect to mysql database
      */
-    Status connect(
+    void connect(
         const std::string &host,
-        const std::string &user,
         const std::string &password
     );
 
     /**
      *  @brief  Disconnect from the database
      */
-    Status disconnect();
+    void disconnect();
 
     /**
      *  @brief  Whether the user is connected to the database
      */
     bool isConnected() const;
-
-    /**
-     *  @brief  Get the mysql user name
-     */
-    const std::string &getUser() const;
 
     /**
      *  @brief  Get the mysql database host
@@ -84,62 +79,74 @@ namespace procctrl {
     /**
      *  @brief  Check the group password in database
      */
-    bool checkGroupPassword(const std::string &group, const std::string &password);
+    bool checkGroupPassword(
+        const std::string &group,
+        const std::string &password
+    );
+
+    /**
+     *  @brief  Convert string to sha256 key using openssl
+     */
+    void passwordToSha256(
+        const std::string &password,
+        unsigned char *sha256
+    );
+
+    /**
+     *  @brief  Whether the sha256 keys are the same
+     */
+    bool sameSha256(
+        unsigned char *sha256_1,
+        unsigned char *sha256_2
+    );
 
   protected:
     /**
      *  @brief  Execute query to database
      */
-    Status execute(const std::string &query);
+    void execute(
+        const std::string &query
+    );
 
     /**
      *  @brief  Execute query and handle result in a handler function
      */
     template <typename Handler>
-    Status query(const std::string &query, Handler handler);
+    void query(
+        const std::string &query,
+        Handler handler
+    );
 
   private:
-
-    MYSQL                       *m_pMySQL;
-
-    std::string                  m_host;
-    std::string                  m_user;
-    std::string                  m_password;
-
-    bool                         m_isConnected;
+    MYSQL                       *m_pMySQL;       ///< The mysql instance
+    std::string                  m_host;         ///< The database host to connect to
+    std::string                  m_password;     ///< The database password
+    bool                         m_isConnected;  ///< Whether a connection to the database has been created
   };
 
   //----------------------------------------------------------------------------------
   //----------------------------------------------------------------------------------
 
   template <typename Handler>
-  inline Status DbInterface::query(
+  inline void DbInterface::query(
       const std::string &query,
       Handler handler
   )
   {
     if(!this->isConnected())
-      return NOT_INITIALIZED;
+      throw Exception(NOT_INITIALIZED, "Database connection not initialized !");
 
     if(mysql_query(m_pMySQL, query.c_str()))
-    {
-      std::cerr << "MySQL query failed : " << mysql_error(m_pMySQL) << std::endl;
-      return FAILURE;
-    }
+      throw Exception(FAILURE, std::string("MySQL query failed : ") + mysql_error(m_pMySQL));
 
     MYSQL_RES *pMySQLResult = mysql_store_result(m_pMySQL);
 
     if(!pMySQLResult)
-    {
-      std::cerr << "MySQL store result failed : " << mysql_error(m_pMySQL) << std::endl;
-      return FAILURE;
-    }
+      throw Exception(FAILURE, std::string("MySQL store result failed : ") + mysql_error(m_pMySQL));
 
     handler( pMySQLResult );
 
     mysql_free_result(pMySQLResult);
-
-    return SUCCESS;
   }
 
 } 

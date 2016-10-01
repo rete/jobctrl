@@ -25,14 +25,17 @@
  * @copyright Remi Ete
  */
 
-
+// -- procctrl headers
 #include "DbInterface.h"
+
+// -- openssl headers
+#include <openssl/sha.h>
 
 namespace procctrl {
 
   DbInterface::DbInterface() :
-    m_pMySQL(NULL),
-    m_isConnected(false)
+      m_pMySQL(NULL),
+      m_isConnected(false)
   {
     /* nop */
   }
@@ -47,14 +50,16 @@ namespace procctrl {
 
   //----------------------------------------------------------------------------------
 
-  Status DbInterface::connect(
+  void DbInterface::connect(
       const std::string &host,
-      const std::string &user,
       const std::string &password
   )
   {
     if(this->isConnected())
-      return ALREADY_CONNECTED;
+      throw Exception(ALREADY_CONNECTED, "Already connected to database!");
+
+    m_host = host;
+    m_password = password;
 
     try
     {
@@ -65,12 +70,11 @@ namespace procctrl {
       {
         std::stringstream errorMessage;
         errorMessage << "Couldn't create mysql instance : " << mysql_error(m_pMySQL);
-
-        throw std::runtime_error(errorMessage.str());
+        throw Exception(FAILURE, errorMessage.str());
       }
 
       // create connection to database
-      if(NULL == mysql_real_connect(m_pMySQL, m_host.c_str(), m_user.c_str(), m_password.c_str(),
+      if(NULL == mysql_real_connect(m_pMySQL, m_host.c_str(), ProcCtrl::DB_USER, m_password.c_str(),
           NULL, 0, NULL, 0))
       {
         std::stringstream errorMessage;
@@ -80,33 +84,47 @@ namespace procctrl {
       }
 
       m_isConnected = true;
+
+      std::stringstream query;
+      query << "USE " << ProcCtrl::DB_NAME << ";";
+
+      this->execute(query.str());
+    }
+    catch(const Exception &exception)
+    {
+      if(m_pMySQL)
+        mysql_close(m_pMySQL);
+
+      m_host = "";
+      m_password = "";
+
+      m_isConnected = false;
+
+      throw exception;
     }
     catch(const std::exception &exception)
     {
       if(m_pMySQL)
         mysql_close(m_pMySQL);
 
+      m_host = "";
+      m_password = "";
+
       m_isConnected = false;
 
-      std::cerr << "Caught exception while connecting to database : " << exception.what() << std::endl;
-
-      return FAILURE;
+      throw Exception(FAILURE, std::string("Caught standard exception while connecting to database : ") + exception.what());
     }
-
-    return SUCCESS;
   }
 
   //----------------------------------------------------------------------------------
 
-  Status DbInterface::disconnect()
+  void DbInterface::disconnect()
   {
     if(!this->isConnected())
-      return SUCCESS;
+      return;
 
     if(m_pMySQL)
       mysql_close(m_pMySQL);
-
-    return SUCCESS;
   }
 
   //----------------------------------------------------------------------------------
@@ -118,13 +136,6 @@ namespace procctrl {
 
   //----------------------------------------------------------------------------------
 
-  const std::string &DbInterface::getUser() const
-  {
-    return m_user;
-  }
-
-  //----------------------------------------------------------------------------------
-
   const std::string &DbInterface::getHost() const
   {
     return m_host;
@@ -132,20 +143,87 @@ namespace procctrl {
 
   //----------------------------------------------------------------------------------
 
-  Status DbInterface::execute(
+  void DbInterface::execute(
       const std::string &query
   )
   {
     if(!this->isConnected())
-      return NOT_INITIALIZED;
+      throw Exception(NOT_INITIALIZED, "Database connection not initialized !");
 
     if(mysql_query(m_pMySQL, query.c_str()))
-    {
-      std::cerr << "MySQL query failed : " << mysql_error(m_pMySQL) << std::endl;
-      return FAILURE;
-    }
+      throw Exception(FAILURE, std::string("MySQL query failed : ") + mysql_error(m_pMySQL));
+  }
 
-    return SUCCESS;
+  //----------------------------------------------------------------------------------
+
+  bool DbInterface::checkGroupPassword(
+      const std::string &group,
+      const std::string &password
+  )
+  {
+    std::stringstream query;
+    query << "SELECT password FROM GROUPS WHERE name=\"" << group << "\";";
+
+    bool validPassword(false);
+
+    try
+    {
+      this->query(query.str(),
+          [&group, &password, &validPassword, this](MYSQL_RES *pMySQLResult) {
+
+        int nFields = mysql_num_fields(pMySQLResult);
+
+        if(nFields == 0)
+          throw Exception(FAILURE, "No group called '" + group + "' in database");
+
+        MYSQL_ROW row = mysql_fetch_row(pMySQLResult);
+        unsigned char *sha256 = (unsigned char *) row[0];
+        unsigned char testSha256[SHA256_DIGEST_LENGTH];
+
+        this->passwordToSha256(password, testSha256);
+
+        validPassword = this->sameSha256(sha256, testSha256);
+      }
+      );
+
+      return validPassword;
+    }
+    catch(...)
+    {
+      return false;
+    }
+  }
+
+  //----------------------------------------------------------------------------------
+
+  void DbInterface::passwordToSha256(
+      const std::string &password,
+      unsigned char *sha256
+  )
+  {
+    unsigned char *pwd(static_cast<unsigned char *>((void *)password.c_str()));
+    unsigned long passwordLength(password.size());
+
+    SHA256_CTX context;
+
+    if(!SHA256_Init(&context))
+      throw Exception(FAILURE, "Couldn't initialized SHA256_CTX context");
+
+    if(!SHA256_Update(&context, pwd, passwordLength))
+      throw Exception(FAILURE, "Couldn't update SHA256_CTX context");
+
+    if(!SHA256_Final(sha256, &context))
+      throw Exception(FAILURE, "Couldn't finalized SHA256_CTX context");
+  }
+
+  //----------------------------------------------------------------------------------
+
+  bool DbInterface::sameSha256(
+      unsigned char *sha256_1,
+      unsigned char *sha256_2
+  )
+  {
+    return (memcmp(sha256_1, sha256_2, SHA256_DIGEST_LENGTH) == 0);
   }
 
 } 
