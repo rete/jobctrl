@@ -28,15 +28,58 @@
 #ifndef PROCCTRL_PROCCTRL_INTERNAL_H
 #define PROCCTRL_PROCCTRL_INTERNAL_H 1
 
+// -- std headers
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cstring>
 #include <map>
 
 #define PROCCTRL_MAX_NARGS    4096
 #define PROCCTRL_MAX_SIZE     300
 #define PROCCTRL_MAX_NENV     100
+
+#define PROCCTRL_GET_ENUM_ENTRY(a, b)  a,
+#define PROCCTRL_GET_NAME_SWITCH(a, b) case a : return b;
+#define PROCCTRL_GET_STR_COMPARE(a, b) if(str == b) return a;
+
+/**
+ * Internal status table
+ */
+#define PROCCTRL_STATUS_TABLE(d) \
+    d(SUCCESS,              "SUCCESS") \
+    d(FAILURE,              "FAILURE") \
+    d(NOT_INITIALIZED,      "NOT_INITIALIZED") \
+    d(NOT_ALLOWED,          "NOT_ALLOWED") \
+    d(NOT_FOUND,            "NOT_FOUND") \
+    d(ALREADY_EXISTS,       "ALREADY_EXISTS") \
+    d(ALREADY_INITIALIZED,  "ALREADY_INITIALIZED") \
+    d(ALREADY_RUNNING,      "ALREADY_RUNNING") \
+    d(ALREADY_CONNECTED,    "ALREADY_CONNECTED") \
+    d(ALREADY_LOGGEDOUT,    "ALREADY_LOGGEDOUT") \
+    d(INVALID_PASSWORD,     "INVALID_PASSWORD") \
+    d(INVALID_PARAMETER,    "INVALID_PARAMETER")
+
+/**
+ *  D   uninterruptible sleep (usually IO)
+ *  R   running or runnable (on run queue)
+ *  S   interruptible sleep (waiting for an event to complete)
+ *  T   stopped, either by a job control signal or because it is being traced
+ *  W   paging (not valid since the 2.6.xx kernel)
+ *  X   dead (should never be seen)
+ *  Z   defunct ("zombie") process, terminated but not reaped by its parent
+ */
+#define PROCCTRL_PROCESS_STATUS_TABLE(d) \
+    d(UNDEFINED,            "UNDEFINED") \
+    d(UNINTERUPTIBLE_SLEEP, "UNINTERUPTIBLE_SLEEP") \
+    d(RUNNING,              "RUNNING") \
+    d(INTERUPTIBLE_SLEEP,   "INTERUPTIBLE_SLEEP") \
+    d(STOPPED,              "STOPPED") \
+    d(PAGING,               "PAGING") \
+    d(DEAD,                 "DEAD") \
+    d(ZOMBIE,               "ZOMBIE")
+
 
 namespace procctrl {
 
@@ -45,22 +88,139 @@ namespace procctrl {
    */
   enum Status
   {
-    SUCCESS,
-    FAILURE,
-    NOT_INITIALIZED,
-    NOT_ALLOWED,
-    NOT_FOUND,
-    ALREADY_EXISTS,
-    ALREADY_INITIALIZED,
-    ALREADY_RUNNING,
-    ALREADY_CONNECTED,
-    INVALID_PASSWORD,
+    PROCCTRL_STATUS_TABLE(PROCCTRL_GET_ENUM_ENTRY)
+    NUMBER_OF_STATUS
   };
 
-  typedef std::map<std::string, std::string> Environnement;
-  typedef std::vector<std::string> ArgumentList;
+  /**
+   *  @brief  Convert status code to string
+   */
+  std::string statusToString(
+      const Status status
+  );
 
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
 
+  /** Exception class
+   */
+  class Exception : public std::exception
+  {
+  public:
+    /**
+     *  @brief  Constructor
+     */
+    Exception(
+        const Status status,
+        const std::string &message
+    );
+
+    /**
+     *  @brief  Constructor
+     */
+    Exception(
+        const Exception &exception,
+        const Status status,
+        const std::string &message
+    );
+
+    /**
+     *  @brief  Constructor
+     */
+    ~Exception() throw();
+
+    /**
+     *  @brief  Get status code
+     */
+    Status getStatus() const;
+
+    /**
+     *  @brief  Get status code as a string
+     */
+    std::string toString() const;
+
+    /**
+     *  @brief  Returns exception message
+     */
+    const char *what() const _GLIBCXX_USE_NOEXCEPT;
+
+  private:
+
+    Status               m_status;       ///< The status code
+    std::string          m_message;      ///< The exception message
+  };
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
+  inline Exception::Exception(
+      const Status status,
+      const std::string &message
+  ) :
+  m_status(status),
+  m_message(message)
+  {
+    /* nop */
+  }
+
+  //----------------------------------------------------------------------------------
+
+  inline Exception::Exception(
+      const Exception &exception,
+      const Status status,
+      const std::string &message
+  )
+  :
+  m_status(status),
+  m_message(message + exception.what())
+  {
+    /* nop */
+  }
+
+  //----------------------------------------------------------------------------------
+
+  inline Exception::~Exception() throw()
+      {
+    /* nop */
+      }
+
+  //----------------------------------------------------------------------------------
+
+  inline Status Exception::getStatus() const
+  {
+    return m_status;
+  }
+
+  //----------------------------------------------------------------------------------
+
+  inline std::string Exception::toString() const
+  {
+    return statusToString(m_status);
+  }
+
+  //----------------------------------------------------------------------------------
+
+  inline const char *Exception::what() const _GLIBCXX_USE_NOEXCEPT
+  {
+    return m_message.c_str();
+  }
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
+  inline std::string statusToString(
+      const Status status
+  )
+  {
+    switch(status)
+    {
+    PROCCTRL_STATUS_TABLE(PROCCTRL_GET_NAME_SWITCH)
+    default: throw Exception(INVALID_PARAMETER, "statusToString: Invalid status !");
+    }
+  }
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
 
   /**
    *  @brief  Kill signal enum
@@ -75,28 +235,37 @@ namespace procctrl {
     SIGTERM = 15     // Signal de terminaison
   };
 
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
   /**
    *  @brief  Process status enum
-   *
-   *  D   uninterruptible sleep (usually IO)
-   *  R   running or runnable (on run queue)
-   *  S   interruptible sleep (waiting for an event to complete)
-   *  T   stopped, either by a job control signal or because it is being traced
-   *  W   paging (not valid since the 2.6.xx kernel)
-   *  X   dead (should never be seen)
-   *  Z   defunct ("zombie") process, terminated but not reaped by its parent
    */
   enum ProcessStatus
   {
-    UNDEFINED,            // undefined status
-    UNINTERUPTIBLE_SLEEP, // D
-    RUNNING,              // R
-    INTERUPTIBLE_SLEEP,   // S
-    STOPPED,              // T
-    PAGING,               // W
-    DEAD,                 // X
-    ZOMBIE                // Z
+    PROCCTRL_PROCESS_STATUS_TABLE(PROCCTRL_GET_ENUM_ENTRY)
+    NUMBER_OF_PROCESS_STATUS
   };
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
+  /**
+   *  @brief  Convert a process status code to string
+   */
+  inline std::string processStatusToString(
+      const ProcessStatus processStatus
+  )
+  {
+    switch(processStatus)
+    {
+    PROCCTRL_STATUS_TABLE(PROCCTRL_GET_NAME_SWITCH)
+    default: throw Exception(INVALID_PARAMETER, "processStatusToString: Invalid process status !");
+    }
+  }
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
 
   /**
    *  @brief  ProcCtrl class
@@ -104,10 +273,16 @@ namespace procctrl {
   class ProcCtrl
   {
   public:
-    static constexpr const char *WATCHER_GROUP_NAME = "WATCHER_GROUP";
-    static constexpr const char *ADMIN_GROUP_NAME   = "ADMIN_GROUP";
-    static constexpr const char *DB_USER            = "PROCCTRL";
+    static constexpr const char *DB_USER            = "PROCCTRL";  ///< The procctrl database user key
+    static constexpr const char *DB_NAME            = "PROCCTRL";  ///< The procctrl database name
+    static constexpr const char *DB_GROUP_TABLE     = "GROUPS";    ///< The procctrl table for groups
   };
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
+  typedef std::map<std::string, std::string> Environnement;
+  typedef std::vector<std::string> ArgumentList;
 }
 
 #endif  //  PROCCTRL_PROCESS_MANAGER_H

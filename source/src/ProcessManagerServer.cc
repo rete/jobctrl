@@ -28,19 +28,40 @@
 
 #include "ProcessManagerServer.h"
 
+#include "json/json.h"
+
 namespace procctrl {
 
   namespace server {
 
+    Rpc::Rpc(RpcListener *pListener, char *name, char *formatIn, char *formatOut) :
+            DimRpc(name, formatIn, formatOut),
+            m_pListener(pListener)
+    {
+      /* nop */
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void Rpc::rpcHandler()
+    {
+      m_pListener->processRpc(this);
+    }
+
+    //----------------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------
+
     ProcessManagerServer::ProcessManagerServer() :
-        m_pProcessManager(0),
-        m_pDbInterface(0),
-        m_isInitialized(false),
-        m_stopFlag(0)
+            m_pProcessManager(0),
+            m_pDbInterface(0),
+            m_isInitialized(false),
+            m_stopFlag(0)
     {
       char hname[80];
       gethostname(hname, 80);
-      m_hostname = hname;
+      m_hostName = hname;
+
+      DimServer::addClientExitHandler(this);
     }
 
     //----------------------------------------------------------------------------------
@@ -54,52 +75,66 @@ namespace procctrl {
         delete m_pDbInterface;
 
       if(m_isInitialized)
-        this->deleteCommands();
+        this->deleteNetworkInterface();
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManagerServer::init(const std::string &dbHost, const std::string &dbPassword)
+    void ProcessManagerServer::init(const std::string &dbHost, const std::string &dbPassword)
     {
+      std::cout << "Initializing server ..." << std::endl;
+
       if(m_isInitialized)
-        return ALREADY_INITIALIZED;
+        throw Exception(ALREADY_INITIALIZED, "ProcessManagerServer::init: Server already initialized !");
 
-      m_pProcessManager = new ProcessManager();
-      m_pDbInterface = new DbInterface();
-
-      const Status dbStatus(m_pDbInterface->connect(dbHost, ProcCtrl::DB_USER, dbPassword));
-
-      if(dbStatus)
+      try
       {
-        std::cerr << "ProcessManagerServer::init: Couldn't connect to db !" << std::endl;
-        return dbStatus;
+        std::cout << "  Creating process manager ..." << std::endl;
+        m_pProcessManager = new ProcessManager();
+        std::cout << "  Creating process manager ... OK" << std::endl;
+
+        std::cout << "  Creating database interface ..." << std::endl;
+        m_pDbInterface = new DbInterface();
+        std::cout << "  Creating database interface ... OK" << std::endl;
+
+        std::cout << "  Connecting to database ..." << std::endl;
+        m_pDbInterface->connect(dbHost, dbPassword);
+        std::cout << "  Connecting to database ... OK" << std::endl;
+
+        std::cout << "  Allocating network interface ..." << std::endl;
+        this->allocateNetworkInterface();
+        std::cout << "  Allocating network interface ... OK" << std::endl;
+
+        m_isInitialized = true;
+      }
+      catch(const Exception &exception)
+      {
+        throw exception;
+      }
+      catch(...)
+      {
+        throw Exception(FAILURE, "ProcessManagerServer::init: Caught unknown exception");
       }
 
-      this->allocateCommands();
-
-      m_isInitialized = true;
-
-      return SUCCESS;
+      std::cout << "Initializing server ... OK" << std::endl;
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManagerServer::run()
+    void ProcessManagerServer::run()
     {
       if(!m_isInitialized)
-        return NOT_INITIALIZED;
+        throw Exception(NOT_INITIALIZED, "Server not initialized !");
 
       m_stopFlag = 0;
 
       std::stringstream serverName;
-      serverName << "procctrl-" << m_hostname;
+      serverName << "procctrl-" << m_hostName;
 
       DimServer::start((char*) serverName.str().c_str());
 
       while(!m_stopFlag)
         sleep(1);
-
-      return SUCCESS;
     }
 
     //----------------------------------------------------------------------------------
@@ -111,16 +146,97 @@ namespace procctrl {
 
     //----------------------------------------------------------------------------------
 
-    void ProcessManagerServer::allocateCommands()
+    void ProcessManagerServer::allocateNetworkInterface()
     {
+      std::string baseRpcName("/procctrl/" + m_hostName + "/");
+      std::stringstream rpcName;
 
+      rpcName << baseRpcName << "kill";
+      m_pKillProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+
+      rpcName.str("");
+      rpcName << baseRpcName << "register";
+      m_pRegisterProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+
+      rpcName.str("");
+      rpcName << baseRpcName << "remove";
+      m_pRemoveProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+
+      rpcName.str("");
+      rpcName << baseRpcName << "start";
+      m_pStartProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+
+      rpcName.str("");
+      rpcName << baseRpcName << "processlog";
+      m_pQueryProcessLogRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+
+      rpcName.str("");
+      rpcName << baseRpcName << "status";
+      m_pQueryProcessStatusRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+
+      rpcName.str("");
+      rpcName << baseRpcName << "login";
+      m_pClientLoginRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+
+      rpcName.str("");
+      rpcName << baseRpcName << "logout";
+      m_pClientLogoutRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
     }
 
     //----------------------------------------------------------------------------------
 
-    void ProcessManagerServer::deleteCommands()
+    void ProcessManagerServer::deleteNetworkInterface()
     {
+      delete m_pKillProcessRpc;
+      delete m_pRegisterProcessRpc;
+      delete m_pRemoveProcessRpc;
+      delete m_pStartProcessRpc;
+      delete m_pQueryProcessLogRpc;
+      delete m_pQueryProcessStatusRpc;
+      delete m_pClientLoginRpc;
+      delete m_pClientLogoutRpc;
+    }
 
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::processRpc(Rpc *pRpc)
+    {
+      if(pRpc == m_pKillProcessRpc)
+        this->handleKillProcessRpc(pRpc);
+
+      if(pRpc == m_pRegisterProcessRpc)
+        this->handleRegisterProcessRpc(pRpc);
+
+      if(pRpc == m_pRemoveProcessRpc)
+        this->handleRemoveProcessRpc(pRpc);
+
+      if(pRpc == m_pStartProcessRpc)
+        this->handleStartProcessRpc(pRpc);
+
+      if(pRpc == m_pQueryProcessLogRpc)
+        this->handleQueryProcessLogRpc(pRpc);
+
+      if(pRpc == m_pQueryProcessStatusRpc)
+        this->handleQueryProcessStatusRpc(pRpc);
+
+      if(pRpc == m_pClientLoginRpc)
+        this->handleClientLoginRpc(pRpc);
+
+      if(pRpc == m_pClientLogoutRpc)
+        this->handleClientLogoutRpc(pRpc);
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::clientExitHandler()
+    {
+      int clientId = DimServer::getClientId();
+
+      if(this->isClientRegistered(clientId))
+      {
+        this->performClientLogout(clientId);
+        this->removeClient(clientId);
+      }
     }
 
     //----------------------------------------------------------------------------------
@@ -138,10 +254,10 @@ namespace procctrl {
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManagerServer::performClientLogging(int clientId, const std::string &group, const std::string &password)
+    void ProcessManagerServer::performClientLogging(int clientId, const std::string &group, const std::string &password)
     {
       if(!m_isInitialized)
-        return NOT_INITIALIZED;
+        throw Exception(NOT_INITIALIZED, "Server not initialized !");
 
       Client client;
 
@@ -154,11 +270,11 @@ namespace procctrl {
       {
         // if logged with same group, nothing to do
         if(client.m_group == group)
-          return SUCCESS;
-
-        // disconnect from group for next step
-        client.m_loggedIn = false;
-        client.m_group = "";
+          return;
+        // can't login, even within an other group, if already logged in.
+        // must logout first
+        else
+          throw Exception(NOT_ALLOWED, "Already logged in. Please logout before !");
       }
 
       const bool pwdValid(m_pDbInterface->checkGroupPassword(group, password));
@@ -170,10 +286,33 @@ namespace procctrl {
       }
       else
       {
-        return INVALID_PASSWORD;
+        throw Exception(INVALID_PASSWORD, "Invalid password !");
       }
+    }
 
-      return SUCCESS;
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::performClientLogout(int clientId)
+    {
+      if(!m_isInitialized)
+        throw Exception(NOT_INITIALIZED, "Server not initialized !");
+
+      Client client;
+
+      if(!this->isClientRegistered(clientId))
+        this->addNewClient(clientId, client);
+      else
+        this->getClient(clientId, client);
+
+      if(!client.m_loggedIn)
+      {
+        throw Exception(ALREADY_LOGGEDOUT, "Client already logged out");
+      }
+      else
+      {
+        client.m_loggedIn = false;
+        client.m_group = "";
+      }
     }
 
     //----------------------------------------------------------------------------------
@@ -205,6 +344,497 @@ namespace procctrl {
       client = m_clients[clientId];
     }
 
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::removeClient(int clientId)
+    {
+      ClientMap::iterator iter = m_clients.find(clientId);
+
+      if(iter != m_clients.end())
+        m_clients.erase(iter);
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleClientLoginRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        Json::Value loginJval;
+        Json::Reader reader;
+        std::string jsonString(pRpc->getString());
+
+        if (!reader.parse(jsonString, loginJval))
+          throw Exception(FAILURE, "Invalid query parsing. Excepted json format");
+
+        std::string group = loginJval["group"].asString();
+        std::string password = loginJval["password"].asString();
+        int clientId = DimServer::getClientId();
+
+        this->performClientLogging(clientId, group, password);
+
+        message << "Client " << clientId << " successfully logged in within group '" << group << "'";
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = message.str();
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleClientLogoutRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        int clientId = DimServer::getClientId();
+
+        this->performClientLogout(clientId);
+
+        message << "Client " << clientId << " successfully logged out";
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = message.str();
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleRegisterProcessRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        int clientId = DimServer::getClientId();
+        bool clientRegistered(this->isClientRegistered(clientId));
+        bool clientLoggedIn(false);
+        Client client;
+
+        if(clientRegistered)
+        {
+          this->getClient(clientId, client);
+          clientLoggedIn = client.m_loggedIn;
+        }
+
+        if(!clientRegistered || !clientLoggedIn)
+          throw Exception(NOT_ALLOWED, "Couldn't add process ! Please login before registering any process.");
+
+        Json::Value processJval;
+        Json::Reader reader;
+        std::string jsonString(pRpc->getString());
+
+        if(!reader.parse(jsonString, processJval))
+          throw Exception(FAILURE, "Invalid query parsing. Excepted json format");
+
+        const std::string name(processJval["name"].asString());
+        bool alreadyRegistered(m_pProcessManager->isProcessRegistered(name));
+
+        if(alreadyRegistered)
+          throw Exception(ALREADY_EXISTS, "Couldn't add process ! Process already registered !");
+
+        const std::string group(client.m_group);
+        const std::string program(processJval["program"].asString());
+
+        ArgumentList args;
+
+        for(int a=0 ; a<processJval["args"].size() ; a++)
+          args.push_back(processJval["args"][a].asString());
+
+        Environnement env;
+
+        const std::vector<std::string> keys(processJval["env"].getMemberNames());
+
+        for(auto iter = keys.begin(), endIter = keys.end() ; endIter != iter ; ++iter)
+          env[*iter] = processJval["env"][*iter].asString();
+
+        m_pProcessManager->addProcess(name, group, program, args, env);
+
+        message << "Process '" << name << "' registered within group '" << group << "'";
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = message.str();
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleKillProcessRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        int clientId = DimServer::getClientId();
+        bool clientRegistered(this->isClientRegistered(clientId));
+        bool clientLoggedIn(false);
+        Client client;
+
+        if(clientRegistered)
+        {
+          this->getClient(clientId, client);
+          clientLoggedIn = client.m_loggedIn;
+        }
+
+        if(!clientRegistered || !clientLoggedIn)
+          throw Exception(NOT_ALLOWED, "Couldn't kill any process! Please login before killing any process.");
+
+        Json::Value processJval;
+        Json::Reader reader;
+        std::string jsonString(pRpc->getString());
+
+        if(!reader.parse(jsonString, processJval))
+          throw Exception(FAILURE, "Invalid query parsing. Excepted json format");
+
+        const std::string name(processJval["name"].asString());
+        const KillSignal killSignal(static_cast<KillSignal>(processJval["signal"].asInt()));
+        const std::string group(client.m_group);
+
+        std::string processGroup;
+        m_pProcessManager->getProcessGroup(name, processGroup);
+
+        if(processGroup != group)
+          throw Exception(NOT_ALLOWED, "Couldn't kill process '"+ name +"'! Invalid group ...");
+
+        m_pProcessManager->killProcess(name, killSignal);
+        const ProcessStatus processStatus(m_pProcessManager->getProcessStatus(name));
+
+        message << "Process '" << name << "' killed. Current status : '" << processStatus << "'";
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = message.str();
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleRemoveProcessRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        int clientId = DimServer::getClientId();
+        bool clientRegistered(this->isClientRegistered(clientId));
+        bool clientLoggedIn(false);
+        Client client;
+
+        if(clientRegistered)
+        {
+          this->getClient(clientId, client);
+          clientLoggedIn = client.m_loggedIn;
+        }
+
+        if(!clientRegistered || !clientLoggedIn)
+          throw Exception(NOT_ALLOWED, "Couldn't remove any process ! Please login before removing any process.");
+
+        Json::Value processJval;
+        Json::Reader reader;
+        std::string jsonString(pRpc->getString());
+
+        if(!reader.parse(jsonString, processJval))
+          throw Exception(FAILURE, "Invalid query parsing. Excepted json format");
+
+        const std::string name(processJval["name"].asString());
+        const KillSignal killSignal(static_cast<KillSignal>(processJval["signal"].asInt()));
+        const std::string group(client.m_group);
+
+        std::string processGroup;
+        m_pProcessManager->getProcessGroup(name, processGroup);
+
+        if(processGroup != group)
+          throw Exception(NOT_ALLOWED, "Couldn't remove process '"+ name +"'! Invalid group ...");
+
+        m_pProcessManager->removeProcess(name, killSignal);
+
+        message << "Process '" << name << "' removed.";
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = message.str();
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleStartProcessRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        int clientId = DimServer::getClientId();
+        bool clientRegistered(this->isClientRegistered(clientId));
+        bool clientLoggedIn(false);
+        Client client;
+
+        if(clientRegistered)
+        {
+          this->getClient(clientId, client);
+          clientLoggedIn = client.m_loggedIn;
+        }
+
+        if(!clientRegistered || !clientLoggedIn)
+          throw Exception(NOT_ALLOWED, "Couldn't start any process ! Please login before starting any process.");
+
+        Json::Value processJval;
+        Json::Reader reader;
+        std::string jsonString(pRpc->getString());
+
+        if(!reader.parse(jsonString, processJval))
+          throw Exception(FAILURE, "Invalid query parsing. Excepted json format");
+
+        const std::string name(processJval["name"].asString());
+        const std::string group(client.m_group);
+
+        std::string processGroup;
+        m_pProcessManager->getProcessGroup(name, processGroup);
+
+        if(processGroup != group)
+          throw Exception(NOT_ALLOWED, "Couldn't start process ! Invalid group ...");
+
+        if(m_pProcessManager->isProcessRunning(name))
+        {
+          const ProcessStatus processStatus(m_pProcessManager->getProcessStatus(name));
+
+          std::stringstream m;
+          m << "Process already running! Current process status : " << processStatusToString(processStatus);
+
+          throw Exception(NOT_ALLOWED, m.str());
+        }
+
+        m_pProcessManager->startProcess(name);
+
+        const ProcessStatus processStatus(m_pProcessManager->getProcessStatus(name));
+        message << "Process '" << name << "' started. Current status : " << processStatusToString(processStatus);
+
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = message.str();
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleQueryProcessLogRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        int clientId = DimServer::getClientId();
+        bool clientRegistered(this->isClientRegistered(clientId));
+        bool clientLoggedIn(false);
+        Client client;
+
+        if(clientRegistered)
+        {
+          this->getClient(clientId, client);
+          clientLoggedIn = client.m_loggedIn;
+        }
+
+        if(!clientRegistered || !clientLoggedIn)
+          throw Exception(NOT_ALLOWED, "Couldn't get any process log file content ! Please login before...");
+
+        Json::Value processJval;
+        Json::Reader reader;
+        std::string jsonString(pRpc->getString());
+
+        if(!reader.parse(jsonString, processJval))
+          throw Exception(FAILURE, "Invalid query parsing. Excepted json format");
+
+        const std::string name(processJval["name"].asString());
+        const std::string group(client.m_group);
+
+        std::string processGroup;
+        m_pProcessManager->getProcessGroup(name, processGroup);
+
+        if(processGroup != group)
+          throw Exception(NOT_ALLOWED, "Couldn't get process log file content! Invalid group ...");
+
+        const std::string logFileContent(m_pProcessManager->getProcessLogFile(name));
+
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = "";
+        anwserJval["log"] = logFileContent;
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleQueryProcessStatusRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        Json::Value processJval;
+        Json::Reader reader;
+        std::string jsonString(pRpc->getString());
+
+        if(!reader.parse(jsonString, processJval))
+          throw Exception(FAILURE, "Invalid query parsing. Excepted json format");
+
+        const std::string name(processJval["name"].asString());
+
+        if(!m_pProcessManager->isProcessRegistered(name))
+          throw Exception(NOT_FOUND, "Process '" + name + "' not registered!");
+
+        const ProcessStatus processStatus(m_pProcessManager->getProcessStatus(name));
+
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = "";
+        anwserJval["processStatus"] = static_cast<int>(processStatus);
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
   }
 } 
 

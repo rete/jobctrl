@@ -29,30 +29,14 @@
 #ifndef PROCESSMANAGERSERVER_H
 #define PROCESSMANAGERSERVER_H
 
+// -- procctrl headers
 #include "ProcCtrlInternal.h"
 #include "DbInterface.h"
 #include "ProcessManager.h"
 
+// -- dim headers
 #include "dis.hxx"
 #include "dic.hxx"
-
-
-// impl :
-// Data base use only on server side.
-// User registers using dim command onto the servers
-// Client is identified by the dim client id.
-// Each time the user query something that can modify
-// any process then server check for the group for each involved process
-// check if the user is connected to db and perform the query
-//
-// SUMMARY of a command:
-// 1) User send connect query
-// 2) Server receive and connect
-//
-// 3) User send action
-// 4) Server check connection and group for each involded process in the query
-// 5) Server perform valid action
-
 
 namespace procctrl {
 
@@ -71,10 +55,57 @@ namespace procctrl {
 
     typedef std::map<int, Client>  ClientMap;
 
+    class Rpc;
+
+    //----------------------------------------------------------------------------------
+
+    /**
+     *  @brief  RpcListener class
+     */
+    class RpcListener
+    {
+    public:
+      /**
+       *  @brief  Callback function to process a rpc
+       */
+      virtual void processRpc(
+          Rpc *pRpc
+      ) = 0;
+    };
+
+    //----------------------------------------------------------------------------------
+
+    /**
+     *  @brief  Rpc class
+     */
+    class Rpc : public DimRpc
+    {
+    public:
+      /**
+       *  @brief  Constructor
+       */
+      Rpc(
+          RpcListener *pListener,
+          char *name,
+          char *formatIn,
+          char *formatOut
+      );
+
+      /**
+       *  @brief  Callback function when the rpc receives a query
+       */
+      void rpcHandler();
+
+    private:
+      RpcListener*     m_pListener;     ///< The rpc listener instance to callback
+    };
+
+    //----------------------------------------------------------------------------------
+
     /**
      *  @brief  ProcessManagerServer class
      */
-    class ProcessManagerServer : public DimServer
+    class ProcessManagerServer : public DimServer, public RpcListener
     {
     public:
       /**
@@ -90,12 +121,15 @@ namespace procctrl {
       /**
        *  @brief  Initialize the server application
        */
-      Status init(const std::string &dbHost, const std::string &dbPassword);
+      void init(
+          const std::string &dbHost,
+          const std::string &dbPassword
+      );
 
       /**
        *  @brief  Runs the server
        */
-      Status run();
+      void run();
 
       /**
        *  @brief  Stop the server application.
@@ -105,60 +139,110 @@ namespace procctrl {
 
     private:
       /**
-       *
+       *  @brief  Allocate the network interface (RPCs)
        */
-      void allocateCommands();
+      void allocateNetworkInterface();
 
       /**
-       *
+       *  @brief  Delete the network interface (RPCs)
        */
-      void deleteCommands();
+      void deleteNetworkInterface();
 
       /**
-       *
+       *  @brief  Callback function from the rpc listener
        */
-      void commandHandler();
+      void processRpc(
+          Rpc *pRpc
+      );
 
       /**
-       *
+       *  @brief  Callback function from DIM when a client exits
        */
       void clientExitHandler();
 
       /**
-       *
+       *  @brief  Add a new client using client id and
+       *          return a client structure by reference
        */
-      void addNewClient(int clientId, Client &client);
+      void addNewClient(
+          int clientId,
+          Client &client
+      );
 
       /**
-       *
+       *  @brief  Login a client within a group using password
        */
-      Status performClientLogging(int clientId, const std::string &group, const std::string &password);
+      void performClientLogging(
+          int clientId,
+          const std::string &group,
+          const std::string &password
+      );
 
       /**
-       *
+       *  @brief  Logout a client
        */
-      bool isClientLoggedAs(int clientId, const std::string &group);
+      void performClientLogout(
+          int clientId
+      );
 
       /**
-       *
+       *  @brief  Remove a client. Called in the client exit handler
        */
-      bool isClientRegistered(int clientId) const;
+      void removeClient(
+          int clientId
+      );
 
       /**
-       *
+       *  @brief  Whether the client is logged within the specified group
        */
-      void getClient(int clientId, Client &client);
+      bool isClientLoggedAs(
+          int clientId,
+          const std::string &group
+      );
+
+      /**
+       *  @brief  Whether the client is registered within the server.
+       */
+      bool isClientRegistered(
+          int clientId
+      ) const;
+
+      /**
+       *  @brief  Get the client structure, by client id
+       */
+      void getClient(
+          int clientId,
+          Client &client
+      );
+
+      // callback function for each server RPC
+      void handleClientLoginRpc(Rpc *pRpc);
+      void handleClientLogoutRpc(Rpc *pRpc);
+      void handleRegisterProcessRpc(Rpc *pRpc);
+      void handleKillProcessRpc(Rpc *pRpc);
+      void handleRemoveProcessRpc(Rpc *pRpc);
+      void handleStartProcessRpc(Rpc *pRpc);
+      void handleQueryProcessLogRpc(Rpc *pRpc);
+      void handleQueryProcessStatusRpc(Rpc *pRpc);
 
     private:
+      ProcessManager*         m_pProcessManager;         ///< The process manager instance
+      DbInterface*            m_pDbInterface;            ///< The database interface instance
 
-      ProcessManager*         m_pProcessManager;
-      DbInterface*            m_pDbInterface;
+      bool                    m_isInitialized;           ///< Whether the server is initialized
+      std::string             m_hostName;                ///< The server host name
+      volatile sig_atomic_t   m_stopFlag;                ///< The server stop flag
 
-      bool                    m_isInitialized;
-      std::string             m_hostname;
-      volatile sig_atomic_t   m_stopFlag;
+      ClientMap               m_clients;                 ///< The registered client infos on this server
 
-      ClientMap               m_clients;
+      Rpc*                    m_pKillProcessRpc;         ///< The server rpc for killing a single process
+      Rpc*                    m_pRegisterProcessRpc;     ///< The server rpc for registering a single process
+      Rpc*                    m_pRemoveProcessRpc;       ///< The server rpc for removing a single process
+      Rpc*                    m_pStartProcessRpc;        ///< The server rpc for starting a single process
+      Rpc*                    m_pQueryProcessLogRpc;     ///< The server rpc for querying a single process log file content
+      Rpc*                    m_pQueryProcessStatusRpc;  ///< The server rpc for querying a single process status
+      Rpc*                    m_pClientLoginRpc;         ///< The server rpc for logging in a client
+      Rpc*                    m_pClientLogoutRpc;        ///< The server rpc for logging out a client
     };
 
   }

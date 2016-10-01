@@ -24,29 +24,15 @@
  * @copyright Remi Ete
  */
 
-
+// -- procctrl
 #include "ProcessManager.h"
 
-#include <iostream>
-#include <sstream>
-#include <iomanip>
-#include <cstdlib>
-#include <cstring>
-#include <cstdio>
-#include <fstream>
-#include <vector>
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/dir.h>
-#include <sys/param.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <dirent.h>
+// -- std headers
+#include <fstream>     // files
+#include <signal.h>    // signal stuff
+#include <fcntl.h>     // open() mode
+#include <errno.h>     // errno variable
+#include <unistd.h>    // execve
 
 namespace procctrl {
 
@@ -66,7 +52,7 @@ namespace procctrl {
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::addProcess(
+    void ProcessManager::addProcess(
         const std::string &name,
         const std::string &group,
         const std::string &program,
@@ -75,7 +61,7 @@ namespace procctrl {
     )
     {
       if(m_processes.find(name) != m_processes.end())
-        return ALREADY_EXISTS;
+        throw Exception(ALREADY_EXISTS, "ProcessManager::addProcess: Process '" + name + "' already exists!");
 
       Process process;
 
@@ -87,67 +73,56 @@ namespace procctrl {
       process.m_pid = 0;
 
       m_processes[name] = process;
-
-      return SUCCESS;
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::startProcess(
+    void ProcessManager::startProcess(
         const std::string &name
     )
     {
       ProcessMap::iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return NOT_FOUND;
+        throw Exception(NOT_FOUND, "ProcessManager::startProcess: Process '" + name + "' not registered!");
 
       if(iter->second.m_pid != 0)
-        return ALREADY_RUNNING;
+        throw Exception(ALREADY_RUNNING, "ProcessManager::startProcess: Process '" + name + "' already running!");
 
-      return this->startProcess(iter->second);
+      this->startProcess(iter->second);
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::restartProcess(
+    void ProcessManager::restartProcess(
         const std::string &name,
         KillSignal sig
     )
     {
-      Status status(this->killProcess(name, sig));
-
-      if(status)
-        return status;
-
-      return this->startProcess(name);
+      this->killProcess(name, sig);
+      this->startProcess(name);
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::removeProcess(
+    void ProcessManager::removeProcess(
         const std::string &name,
         KillSignal sig
     )
     {
-      Status status(this->killProcess(name, sig));
-
-      if(status)
-        return status;
+      this->killProcess(name, sig);
 
       ProcessMap::iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return NOT_FOUND;
+        throw Exception(NOT_FOUND, "Process '" + name + "' not found");
 
       m_processes.erase(iter);
-
-      return SUCCESS;
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::killProcess(
+    void ProcessManager::killProcess(
         const std::string &name,
         KillSignal sig
     )
@@ -155,27 +130,47 @@ namespace procctrl {
       ProcessMap::iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return NOT_FOUND;
+        throw Exception(NOT_FOUND, "Process '" + name + "' not found");
 
       if(iter->second.m_pid != 0)
-        ::kill(iter->second.m_pid, static_cast<int>(sig));
+      {
+        int killStatus = ::kill(iter->second.m_pid, static_cast<int>(sig));
 
-      return SUCCESS;
+        if(killStatus)
+          throw Exception(FAILURE, "Couldn't kill process '" + name + "'. Errno set to " + std::to_string(errno));
+      }
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::killAllProcesses(
+    void ProcessManager::killAllProcesses(
         KillSignal sig
     )
     {
+      std::map<std::string, int> notKilledProcesses;
+
       for(auto &j : m_processes)
       {
         if(j.second.m_pid != 0)
-          ::kill(j.second.m_pid, static_cast<int>(sig));
+        {
+          if(::kill(j.second.m_pid, static_cast<int>(sig)))
+            notKilledProcesses[j.second.m_name] = j.second.m_pid;
+        }
       }
 
-      return SUCCESS;
+      if(!notKilledProcesses.empty())
+      {
+        std::stringstream message;
+        message << "Couldn't kill all processes : ";
+
+        for(auto &p : notKilledProcesses)
+        {
+          message << "'" << p.first << "' (" << p.second << ") ";
+        }
+
+        throw Exception(FAILURE, message.str());
+      }
+
     }
 
     //----------------------------------------------------------------------------------
@@ -203,7 +198,16 @@ namespace procctrl {
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::getProcessGroup(
+    bool ProcessManager::isProcessRunning(
+        const std::string &name
+    ) const
+    {
+      return (this->getProcessStatus(name) != DEAD);
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManager::getProcessGroup(
         const std::string &name,
         std::string &group
     ) const
@@ -211,11 +215,9 @@ namespace procctrl {
       ProcessMap::const_iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return NOT_FOUND;
+        throw Exception(NOT_FOUND, "Process '" + name + "' not found");
 
       group = iter->second.m_group;
-
-      return SUCCESS;
     }
 
     //----------------------------------------------------------------------------------
@@ -254,7 +256,7 @@ namespace procctrl {
       ProcessMap::const_iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return "No such job with name '" + name + "'";
+        throw Exception(NOT_FOUND, "Process '" + name + "' not found");
 
       std::stringstream fileName;
       fileName << "/tmp/jobctl" << iter->second.m_pid << ".log";
@@ -273,12 +275,12 @@ namespace procctrl {
         return contents;
       }
       else
-        return "File '" + fileName.str() + "' not found !";
+        throw Exception(NOT_FOUND, "Process log file '" + fileName.str() + "' not found");
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::modifyEnvironement(
+    void ProcessManager::modifyEnvironement(
         const std::string &name,
         const Environnement &env
     )
@@ -286,19 +288,17 @@ namespace procctrl {
       ProcessMap::iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return NOT_FOUND;
+        throw Exception(NOT_FOUND, "Process '" + name + "' not found");
 
       if(iter->second.m_pid != 0)
-        return NOT_ALLOWED;
+        throw Exception(NOT_ALLOWED, "Process '" + name + "' already running. Can't change env while running");
 
       iter->second.m_environement = env;
-
-      return SUCCESS;
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::modifyProgram(
+    void ProcessManager::modifyProgram(
         const std::string &name,
         const std::string &program
     )
@@ -306,19 +306,17 @@ namespace procctrl {
       ProcessMap::iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return NOT_FOUND;
+        throw Exception(NOT_FOUND, "Process '" + name + "' not found");
 
       if(iter->second.m_pid != 0)
-        return NOT_ALLOWED;
+        throw Exception(NOT_ALLOWED, "Process '" + name + "' already running. Can't change program name while running");
 
       iter->second.m_program = program;
-
-      return SUCCESS;
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::modifyArguments(
+    void ProcessManager::modifyArguments(
         const std::string &name,
         const ArgumentList &args
     )
@@ -326,44 +324,40 @@ namespace procctrl {
       ProcessMap::iterator iter = m_processes.find(name);
 
       if(iter == m_processes.end())
-        return NOT_FOUND;
+        throw Exception(NOT_FOUND, "Process '" + name + "' not found");
 
       if(iter->second.m_pid != 0)
-        return NOT_ALLOWED;
+        throw Exception(NOT_ALLOWED, "Process '" + name + "' already running. Can't change arguments while running");
 
       iter->second.m_arguments = args;
-
-      return SUCCESS;
     }
 
     //----------------------------------------------------------------------------------
 
-    Status ProcessManager::startProcess(
+    void ProcessManager::startProcess(
         Process &process
     )
     {
       if (process.m_pid != 0)
-        return ALREADY_RUNNING;
+        throw Exception(ALREADY_RUNNING, "Process '" + process.m_name + "' already running!");
 
       // check input
       if(process.m_program.size() > PROCCTRL_MAX_SIZE)
-        return FAILURE;
+        throw Exception(FAILURE, "Process '" + process.m_name + "': program name too long!");
 
       for(auto &arg : process.m_arguments)
         if(arg.size() > PROCCTRL_MAX_SIZE)
-          return FAILURE;
+          throw Exception(FAILURE, "Process '" + process.m_name + "' arg '" + arg + "': too long!");
 
       for(auto &env : process.m_environement)
         if(env.first.size() + env.second.size() + 1 > PROCCTRL_MAX_SIZE)
-          return FAILURE;
+          throw Exception(FAILURE, "Process '" + process.m_name + "' env var (name+value)'" + env.first + "': too long!");
 
       if(process.m_arguments.size() > PROCCTRL_MAX_NARGS-2)
-        return FAILURE;
+        throw Exception(FAILURE, "Process '" + process.m_name + "': too many args!");
 
       if(process.m_environement.size() > PROCCTRL_MAX_NENV-1)
-        return FAILURE;
-
-
+        throw Exception(FAILURE, "Process '" + process.m_name + "': too many env vars!");
 
       signal(SIGCHLD, SIG_IGN);
 
@@ -375,8 +369,7 @@ namespace procctrl {
       {
         process.m_pid = pid;
         process.m_status = this->getProcessStatus(pid);
-
-        return SUCCESS;
+        return;
       }
 
       // program name

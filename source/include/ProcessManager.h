@@ -28,6 +28,7 @@
 #ifndef PROCCTRL_PROCESS_MANAGER_H
 #define PROCCTRL_PROCESS_MANAGER_H 1
 
+// -- procctrl headers
 #include "ProcCtrlInternal.h"
 
 namespace procctrl {
@@ -39,13 +40,13 @@ namespace procctrl {
      */
     struct Process
     {
-      std::string        m_name;
-      std::string        m_group;
-      std::string        m_program;
-      pid_t              m_pid;
-      ProcessStatus      m_status;
-      Environnement      m_environement;
-      ArgumentList       m_arguments;
+      std::string        m_name;           ///< The process name
+      std::string        m_group;          ///< The process group
+      std::string        m_program;        ///< The process program full name
+      pid_t              m_pid;            ///< The process pid when running
+      ProcessStatus      m_status;         ///< The process status
+      Environnement      m_environement;   ///< The process environment variables
+      ArgumentList       m_arguments;      ///< The process program arguments
     };
 
     typedef std::map<std::string, Process> ProcessMap;
@@ -69,7 +70,7 @@ namespace procctrl {
       /**
        *  @brief  Add a process
        */
-      Status addProcess(
+      void addProcess(
           const std::string &name,
           const std::string &group,
           const std::string &program,
@@ -80,14 +81,14 @@ namespace procctrl {
       /**
        *  @brief  Start a registered process
        */
-      Status startProcess(
+      void startProcess(
           const std::string &name
       );
 
       /**
        *  @brief Restart a registered process
        */
-      Status restartProcess(
+      void restartProcess(
           const std::string &name,
           KillSignal sig = SIGKILL
       );
@@ -95,7 +96,7 @@ namespace procctrl {
       /**
        *  @brief  Remove a registered process. Kill the process if running
        */
-      Status removeProcess(
+      void removeProcess(
           const std::string &name,
           KillSignal sig = SIGKILL
       );
@@ -103,7 +104,7 @@ namespace procctrl {
       /**
        *  @brief  Kill a runnign process
        */
-      Status killProcess(
+      void killProcess(
           const std::string &name,
           KillSignal sig = SIGKILL
       );
@@ -111,7 +112,7 @@ namespace procctrl {
       /**
        *  @brief  Kill all runing processes
        */
-      Status killAllProcesses(
+      void killAllProcesses(
           KillSignal sig = SIGKILL
       );
 
@@ -130,9 +131,16 @@ namespace procctrl {
       ) const;
 
       /**
+       *  @brief  Whether the process is running
+       */
+      bool isProcessRunning(
+          const std::string &name
+      ) const;
+
+      /**
        *  @brief  Get the process group
        */
-      Status getProcessGroup(
+      void getProcessGroup(
           const std::string &name,
           std::string &group
       ) const;
@@ -159,7 +167,7 @@ namespace procctrl {
       /**
        *  @brief  Modify the process environment. Valid only if the process is not running
        */
-      Status modifyEnvironement(
+      void modifyEnvironement(
           const std::string &name,
           const Environnement &env
       );
@@ -167,7 +175,7 @@ namespace procctrl {
       /**
        *  @brief  Modify the process program. Valid only if the process is not running
        */
-      Status modifyProgram(
+      void modifyProgram(
           const std::string &name,
           const std::string &program
       );
@@ -175,7 +183,7 @@ namespace procctrl {
       /**
        *  @brief  Modify the process arguments. Valid only if the process is not running
        */
-      Status modifyArguments(
+      void modifyArguments(
           const std::string &name,
           const ArgumentList &args
       );
@@ -185,7 +193,7 @@ namespace procctrl {
        *  @brief  Start a registered process.
        *          Fork and calls execve()
        */
-      Status startProcess(
+      void startProcess(
           Process &process
       );
 
