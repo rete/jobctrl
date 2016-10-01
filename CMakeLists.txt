@@ -1,11 +1,11 @@
 #################################################
-# cmake file for building jobctrl package
+# cmake file for building procctrl package
 # @author Eté Rémi
 CMAKE_MINIMUM_REQUIRED( VERSION 2.6 FATAL_ERROR )
 #################################################
 
 # project name
-PROJECT( jobctrl )
+PROJECT( procctrl )
 
 SET( ${PROJECT_NAME}_VERSION_MAJOR 0 )
 SET( ${PROJECT_NAME}_VERSION_MINOR 0 )
@@ -38,6 +38,7 @@ FIND_PACKAGE( Threads REQUIRED )
 FIND_PACKAGE( DIM REQUIRED SHARED )
 FIND_PACKAGE( JSONCPP REQUIRED )
 FIND_PACKAGE( MySQL REQUIRED )
+FIND_PACKAGE( OpenSSL REQUIRED )
 
 INCLUDE_DIRECTORIES( ${DIM_INCLUDE_DIRS} )
 LINK_LIBRARIES( ${DIM_LIBRARIES} )
@@ -51,15 +52,18 @@ INCLUDE_DIRECTORIES( ${MySQL_INCLUDE_DIRS} )
 LINK_LIBRARIES( ${MySQL_LIBRARIES} )
 ADD_DEFINITIONS ( ${MySQL_DEFINITIONS} ) 
 
+INCLUDE_DIRECTORIES( ${OPENSSL_INCLUDE_DIR} )
+LINK_LIBRARIES( ${OPENSSL_LIBRARIES} )
+
 IF( CMAKE_USE_PTHREADS_INIT )
     ADD_DEFINITIONS( -lpthread )
 ENDIF()
 
 ###############################
 # Export ${PROJECT_NAME}_DEPENDS* to ${PROJECT_NAME}Config.cmake
-SET( ${PROJECT_NAME}_DEPENDS_INCLUDE_DIRS  ${DIM_INCLUDE_DIRS} ${JSONCPP_INCLUDE_DIRS} )
+SET( ${PROJECT_NAME}_DEPENDS_INCLUDE_DIRS  ${DIM_INCLUDE_DIRS} ${JSONCPP_INCLUDE_DIRS} ${MySQL_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR})
 SET( ${PROJECT_NAME}_DEPENDS_LIBRARY_DIRS  ${DIM_LIBRARY_DIRS} ${JSONCPP_LIBRARY_DIRS} )
-SET( ${PROJECT_NAME}_DEPENDS_LIBRARIES     ${DIM_LIBRARIES}    ${JSONCPP_LIBRARIES}    )
+SET( ${PROJECT_NAME}_DEPENDS_LIBRARIES     ${DIM_LIBRARIES}    ${JSONCPP_LIBRARIES}    ${MySQL_LIBRARIES} ${OPENSSL_LIBRARIES})
 
 ###############################
 # include directories
@@ -75,20 +79,32 @@ FILE(
 	source/src/*.cc
 )
 
-ADD_SHARED_LIBRARY( jobctrl ${SRC_FILES} )
+ADD_SHARED_LIBRARY( procctrl ${SRC_FILES} )
 
 INSTALL( 
-    TARGETS jobctrl
+    TARGETS procctrl
     LIBRARY DESTINATION lib
 )
 
-#ADD_EXECUTABLE( dimjc_daemon src/djc.cxx )
-#TARGET_LINK_LIBRARIES( dimjc_daemon dimjc )
+###############################
 
-#INSTALL( 
-#    TARGETS dimjc_daemon
-#    RUNTIME DESTINATION bin
-#)
+ADD_EXECUTABLE( procctrl-srv source/main/procctrl-srv.cc )
+TARGET_LINK_LIBRARIES( procctrl-srv procctrl )
+
+INSTALL( 
+    TARGETS procctrl-srv
+    RUNTIME DESTINATION bin
+)
+
+###############################
+
+ADD_EXECUTABLE( procctrl-generate-pwd source/main/procctrl-generate-pwd.cc )
+TARGET_LINK_LIBRARIES( procctrl-generate-pwd procctrl )
+
+INSTALL( 
+    TARGETS procctrl-generate-pwd
+    RUNTIME DESTINATION bin
+)
 
 ###############################
 # display some variables and write them to cache
