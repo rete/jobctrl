@@ -280,6 +280,28 @@ namespace procctrl {
 
     //----------------------------------------------------------------------------------
 
+    unsigned int ProcessManager::getRegisteredProcesses() const
+    {
+      return m_processes.size();
+    }
+
+    //----------------------------------------------------------------------------------
+
+    unsigned int ProcessManager::getRegisteredProcesses(
+        const std::string &group
+    ) const
+    {
+      unsigned int nProcesses(0);
+
+      for(auto &j : m_processes)
+        if(j.second.m_group == group)
+          nProcesses;
+
+      return nProcesses;
+    }
+
+    //----------------------------------------------------------------------------------
+
     void ProcessManager::modifyEnvironement(
         const std::string &name,
         const Environnement &env

@@ -165,6 +165,18 @@ namespace procctrl {
       ) const;
 
       /**
+       *  @brief  Get the number of registered processes
+       */
+      unsigned int getRegisteredProcesses() const;
+
+      /**
+       *  @brief  Get the number of registered processes for the target group
+       */
+      unsigned int getRegisteredProcesses(
+          const std::string &group
+      ) const;
+
+      /**
        *  @brief  Modify the process environment. Valid only if the process is not running
        */
       void modifyEnvironement(
