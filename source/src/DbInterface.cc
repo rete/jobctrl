@@ -226,5 +226,39 @@ namespace procctrl {
     return (memcmp(sha256_1, sha256_2, SHA256_DIGEST_LENGTH) == 0);
   }
 
+  //----------------------------------------------------------------------------------
+
+  unsigned int DbInterface::getMaxServerNProcess(
+      const std::string &group
+  )
+  {
+    std::stringstream query;
+    query << "SELECT max_proc FROM GROUPS WHERE name=\"" << group << "\";";
+
+    try
+    {
+      unsigned int maxProc(0);
+
+      this->query(query.str(),
+          [&group, &maxProc, this](MYSQL_RES *pMySQLResult) {
+
+        int nFields = mysql_num_fields(pMySQLResult);
+
+        if(nFields == 0)
+          throw Exception(FAILURE, "No group called '" + group + "' in database");
+
+        MYSQL_ROW row = mysql_fetch_row(pMySQLResult);
+        maxProc = (unsigned int) row[0];
+      }
+      );
+
+      return maxProc;
+    }
+    catch(...)
+    {
+      return 0;
+    }
+  }
+
 } 
 

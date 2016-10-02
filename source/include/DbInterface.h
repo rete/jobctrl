@@ -100,6 +100,14 @@ namespace procctrl {
         unsigned char *sha256_2
     );
 
+    /**
+     *  @brief  Get the maximum number of process that
+     *          can be run for a target group
+     */
+    unsigned int getMaxServerNProcess(
+        const std::string &group
+    );
+
   protected:
     /**
      *  @brief  Execute query to database
