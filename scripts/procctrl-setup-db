@@ -1,0 +1,99 @@
+#! /bin/sh
+# This script configures MySQL for procctrl from scratch : create the db, the users, and the basic tables
+
+
+echo "Configuration of MySQL database for procctrl"
+echo "Please follow instructions. Values in [] are defaults if nothing answered"
+echo ""
+
+LOCALHOST=`hostname`
+
+# Ask which MySQL server to use
+read -p "Please enter MySQL server host name [localhost] : " PROCCTRL_DB_MYSQL_HOST
+if [ "$PROCCTRL_DB_MYSQL_HOST" = "" ]; then PROCCTRL_DB_MYSQL_HOST="localhost"; fi
+
+# Test if a root password is defined
+PWD=""
+mysql -h $PROCCTRL_DB_MYSQL_HOST -u root -e "exit" > /dev/null 2>&1
+
+if [ "$?" = "0" ]; then 
+  echo "No password is defined yet to access MySQL server with user 'root' on $PROCCTRL_DB_MYSQL_HOST"
+  stty -echo
+  read -p "Please enter new root password for mysql [leave blank]: " PWD
+  stty echo
+  echo
+
+  if [ "$PWD" != "" ]; then
+    stty -echo
+    read -p "Please enter again: " PWD2
+    stty echo
+    echo
+    if [ "$PWD" != "$PWD2" ]; then
+      echo "Mismatch!"
+      exit
+    fi
+    
+    /usr/bin/mysqladmin -h $PROCCTRL_DB_MYSQL_HOST -u root password "$PWD"
+    echo "Password updated"
+    PWD="-p$PWD"
+    # remove empty entries as well
+    mysql -h $PROCCTRL_DB_MYSQL_HOST -u root $PWD -e "DELETE FROM mysql.user WHERE User = ''; \
+      FLUSH PRIVILEGES;"
+  else
+    echo "Root password left blank"
+  fi
+
+else
+  stty -echo
+  read -p "Please enter root password for mysql : " PWD
+  stty echo
+  echo
+  if [ "$PWD" != "" ]; then
+    PWD="-p$PWD"
+  fi
+fi
+
+
+# try connection
+mysql -h $PROCCTRL_DB_MYSQL_HOST -u root $PWD -e "exit"
+if [ "$?" != "0" ]; then 
+  echo "Connection failed"
+  exit
+fi
+
+
+echo "Database creation - existing databases will NOT be destroyed"
+PROCCTRL_DB_MYSQL_DB="PROCCTRL"
+mysql -h $PROCCTRL_DB_MYSQL_HOST -u root $PWD -e "create database $PROCCTRL_DB_MYSQL_DB"
+
+
+# Create account
+PROCCTRL_DB_MYSQL_USER="PROCCTRL"
+read -p "Please enter a password for the PROCCTRL user to access procctrl databases (space separated) [procctrl] : " PROCCTRL_DB_MYSQL_PWD
+
+if [ "$PROCCTRL_DB_MYSQL_PWD" = "" ]; then  PROCCTRL_DB_MYSQL_PWD=procctrl; fi
+
+HERE=`hostname -f`
+
+
+
+mysql -h $PROCCTRL_DB_MYSQL_HOST -u root $PWD -e "
+  grant all privileges on $PROCCTRL_DB_MYSQL_DB.* to \"$PROCCTRL_DB_MYSQL_USER\"@\"%\" identified by \"$PROCCTRL_DB_MYSQL_PWD\";
+  grant all privileges on $PROCCTRL_DB_MYSQL_DB.* to \"$PROCCTRL_DB_MYSQL_USER\"@\"localhost\" identified by \"$PROCCTRL_DB_MYSQL_PWD\";
+  grant all privileges on $PROCCTRL_DB_MYSQL_DB.* to \"$PROCCTRL_DB_MYSQL_USER\"@\"$HERE\" identified by \"$PROCCTRL_DB_MYSQL_PWD\";
+"
+
+
+# Create tables
+echo "Creating tables ..."
+mysql $PROCCTRL_DB_MYSQL_DB -u $PROCCTRL_DB_MYSQL_USER -p$PROCCTRL_DB_MYSQL_PWD -h $PROCCTRL_DB_MYSQL_HOST -e"CREATE TABLE GROUPS ( name VARCHAR(50) PRIMARY KEY NOT NULL, password VARCHAR(44) NOT NULL, max_proc INT DEFAULT 200) ENGINE=INNODB;"
+
+
+echo "PROCCTRL MySQL server accounts and database were successfully created"
+
+
+
+
+
+
+
