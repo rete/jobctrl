@@ -4,9 +4,10 @@ sudo: not required
 
 script:
   - ./.travis.d/install_dependencies.sh ${DIM_OS}
+  - export DIMDIR=$PWD/dim
   - mkdir build
   - cd build
-  - cmake -DDIMDIR=../dim/ ..
+  - cmake -DDIMDIR=${DIMDIR} ..
   - make install
 
 addons:
