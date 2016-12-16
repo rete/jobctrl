@@ -4,22 +4,22 @@
  * Creation date : lun. sept. 26 2016
  *
  * This file is part of procctrl libraries.
- * 
+ *
  * procctrl is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  * based upon these libraries are permitted. Any copy of these libraries
  * must include this copyright notice.
- * 
+ *
  * procctrl is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with procctrl.  If not, see <http://www.gnu.org/licenses/>.
- * 
+ *
  * @author Remi Ete
  * @copyright Remi Ete
  */
@@ -35,6 +35,7 @@
 #include <vector>
 #include <cstring>
 #include <map>
+#include <set>
 
 #define PROCCTRL_MAX_NARGS    4096
 #define PROCCTRL_MAX_SIZE     300
@@ -273,16 +274,247 @@ namespace procctrl {
   class ProcCtrl
   {
   public:
-    static constexpr const char *DB_USER            = "PROCCTRL";  ///< The procctrl database user key
-    static constexpr const char *DB_NAME            = "PROCCTRL";  ///< The procctrl database name
-    static constexpr const char *DB_GROUP_TABLE     = "GROUPS";    ///< The procctrl table for groups
+    static constexpr const char    *DB_USER            = "PROCCTRL";  ///< The procctrl database user key
+    static constexpr const char    *DB_NAME            = "PROCCTRL";  ///< The procctrl database name
+    static constexpr const char    *DB_GROUP_TABLE     = "GROUPS";    ///< The procctrl table for groups
+    static constexpr unsigned int   MAX_N_PROCS        = 200;         ///< The default maximum number of process to run in a server
   };
 
   //----------------------------------------------------------------------------------
   //----------------------------------------------------------------------------------
 
+  class Process;
   typedef std::map<std::string, std::string> Environnement;
   typedef std::vector<std::string> ArgumentList;
+  typedef std::map<std::string, Process> ProcessMap;
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
+  /**
+   *  @brief Callback class.
+   *         Base class to store callback function
+   */
+  template <typename ...Args>
+  class Callback
+  {
+  public:
+    typedef std::vector<Callback<Args...> *>  Vector;
+
+    /**
+     *  @brief  Destructor
+     */
+    virtual ~Callback() {}
+
+    /**
+     *  @brief  Process the callback
+     */
+    virtual void process(Args ...args) = 0;
+  };
+
+  //----------------------------------------------------------------------------------
+
+  /**
+   *  @brief  ClassbackT class.
+   */
+  template <typename T, typename ...Args>
+  class CallbackT : public Callback<Args ...>
+  {
+  public:
+    typedef void (T::*Function)(Args...args);
+
+    /**
+     *  @brief  Constructor with
+     */
+    CallbackT(T *pClass, Function function);
+
+    /**
+     *  @brief  Process the callback
+     */
+    void process(Args ...args);
+
+    /**
+     *
+     */
+    const T *getClass() const;
+
+  private:
+    T                 *m_pClass;
+    Function           m_function;
+  };
+
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  class CallbackList
+  {
+  public:
+    /**
+     *
+     */
+    ~CallbackList();
+
+    /**
+     *
+     */
+    void process(Args ...args);
+
+    /**
+     *
+     */
+    template <typename T, typename S>
+    bool connect(T *pClass, S function);
+
+    /**
+     *
+     */
+    template <typename T>
+    bool disconnect(T *pClass);
+
+    /**
+     *
+     */
+    void disconnectAll();
+
+    /**
+     *
+     */
+    template <typename T>
+    bool isConnected(T *pClass) const;
+
+    /**
+     *
+     */
+    bool hasConnection() const;
+
+  private:
+    typename Callback<Args...>::Vector           m_callbacks;
+  };
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  inline CallbackList<Args ...>::~CallbackList()
+  {
+    this->disconnectAll();
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  inline void CallbackList<Args ...>::process(Args ...args)
+  {
+    for(auto iter = m_callbacks.begin(), endIter = m_callbacks.end() ; endIter != iter ; ++iter)
+      (*iter)->process(args...);
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  template <typename T, typename S>
+  inline bool CallbackList<Args ...>::connect(T *pClass, S function)
+  {
+    // check for existing connection
+    if(this->isConnected(pClass))
+      return false;
+
+    // add the callback
+    m_callbacks.push_back(new CallbackT<T, Args...>(pClass, function));
+
+    return true;
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  template <typename T>
+  inline bool CallbackList<Args ...>::disconnect(T *pClass)
+  {
+    for(auto iter = m_callbacks.begin(), endIter = m_callbacks.end() ; endIter != iter ; ++iter)
+    {
+      CallbackT<T, Args...> *pCallBackT(dynamic_cast<CallbackT<T, Args...> *>(*iter));
+
+      if(!pCallBackT)
+        continue;
+
+      if(pCallBackT->getClass() == pClass)
+      {
+        delete pCallBackT;
+        m_callbacks.erase(iter);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  inline void CallbackList<Args ...>::disconnectAll()
+  {
+    for(auto iter = m_callbacks.begin(), endIter = m_callbacks.end() ; endIter != iter ; ++iter)
+      delete *iter;
+
+    m_callbacks.clear();
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  template <typename T>
+  inline bool CallbackList<Args ...>::isConnected(T *pClass) const
+  {
+    for(auto iter = m_callbacks.begin(), endIter = m_callbacks.end() ; endIter != iter ; ++iter)
+    {
+      const CallbackT<T, Args...> *pCallBackT(dynamic_cast<const CallbackT<T, Args...> *>(*iter));
+
+      if(!pCallBackT)
+        continue;
+
+      if(pCallBackT->getClass() == pClass)
+        return true;
+    }
+
+    return false;
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename ...Args>
+  inline bool CallbackList<Args ...>::hasConnection() const
+  {
+    return (!m_callbacks.empty());
+  }
+
+  //----------------------------------------------------------------------------------
+  //----------------------------------------------------------------------------------
+
+  template <typename T, typename ...Args>
+  inline CallbackT<T, Args...>::CallbackT(T *pClass, Function function) :
+    m_pClass(pClass),
+    m_function(function)
+  {
+    /* nop */
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename T, typename ...Args>
+  inline void CallbackT<T, Args...>::process(Args ...args)
+  {
+    (m_pClass->*m_function)(args...);
+  }
+
+  //----------------------------------------------------------------------------------
+
+  template <typename T, typename ...Args>
+  inline const T *CallbackT<T, Args...>::getClass() const
+  {
+    return m_pClass;
+  }
+
 }
 
 #endif  //  PROCCTRL_PROCESS_MANAGER_H
