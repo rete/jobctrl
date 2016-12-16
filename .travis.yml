@@ -5,8 +5,7 @@ sudo: not required
 script:
   - ./.travis.d/install_dependencies.sh ${DIM_OS}
   - export DIMDIR=$PWD/dim
-  - export CXX="g++-4.8"
-  - export CC="gcc-4.8"
+  - if [ "$CXX" = "g++" ]; then export CXX="g++-4.8" CC="gcc-4.8"; fi
   - mkdir build
   - cd build
   - cmake -DDIMDIR=${DIMDIR} ..
