@@ -2,14 +2,6 @@ language: cpp
 
 sudo: not required
 
-compiler:
-  - gcc
-  - clang
-
-os:
-  - linux
-  - osx
-
 script:
   - ./.travis.d/install_dependencies.sh ${DIM_OS}
   - mkdir build
@@ -25,5 +17,13 @@ matrix:
         - DIM_OS=Darwin
     - os: linux
       compiler: clang
+      env:
+        - DIM_OS=Linux
+    - os: osx
+      compiler: clang
+      env:
+        - DIM_OS=Darwin
+    - os: linux
+      compiler: gcc
       env:
         - DIM_OS=Linux
