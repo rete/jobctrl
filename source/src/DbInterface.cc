@@ -372,13 +372,15 @@ namespace procctrl {
       this->query(query.str(),
           [&group, &maxProc, this](MYSQL_RES *pMySQLResult) {
 
-        int nFields = mysql_num_fields(pMySQLResult);
+        int nFields = mysql_num_rows(pMySQLResult);
 
         if(nFields == 0)
           throw Exception(FAILURE, "No group called '" + group + "' in database");
 
         MYSQL_ROW row = mysql_fetch_row(pMySQLResult);
-        maxProc = (unsigned int) row[0];
+        std::stringstream ss;
+        ss << row[0];
+        ss >> maxProc;
       }
       );
 
