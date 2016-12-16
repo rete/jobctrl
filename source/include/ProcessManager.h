@@ -36,22 +36,6 @@ namespace procctrl {
   namespace server {
 
     /**
-     *  @brief  Process struct
-     */
-    struct Process
-    {
-      std::string        m_name;           ///< The process name
-      std::string        m_group;          ///< The process group
-      std::string        m_program;        ///< The process program full name
-      pid_t              m_pid;            ///< The process pid when running
-      ProcessStatus      m_status;         ///< The process status
-      Environnement      m_environement;   ///< The process environment variables
-      ArgumentList       m_arguments;      ///< The process program arguments
-    };
-
-    typedef std::map<std::string, Process> ProcessMap;
-
-    /**
      * @brief ProcessManager class
      */
     class ProcessManager
@@ -117,6 +101,11 @@ namespace procctrl {
       );
 
       /**
+       *  @brief  Get the process map
+       */
+      const ProcessMap &getProcessMap() const;
+
+      /**
        *  @brief  Get the process status
        */
       ProcessStatus getProcessStatus(
@@ -167,12 +156,12 @@ namespace procctrl {
       /**
        *  @brief  Get the number of registered processes
        */
-      unsigned int getRegisteredProcesses() const;
+      unsigned int getNRegisteredProcesses() const;
 
       /**
        *  @brief  Get the number of registered processes for the target group
        */
-      unsigned int getRegisteredProcesses(
+      unsigned int getNRegisteredProcesses(
           const std::string &group
       ) const;
 

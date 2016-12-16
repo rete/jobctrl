@@ -4,28 +4,29 @@
  * Creation date : lun. sept. 26 2016
  *
  * This file is part of procctrl libraries.
- * 
+ *
  * procctrl is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  * based upon these libraries are permitted. Any copy of these libraries
  * must include this copyright notice.
- * 
+ *
  * procctrl is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with procctrl.  If not, see <http://www.gnu.org/licenses/>.
- * 
+ *
  * @author Remi Ete
  * @copyright Remi Ete
  */
 
 // -- procctrl
 #include "ProcessManager.h"
+#include "Process.h"
 
 // -- std headers
 #include <fstream>     // files
@@ -71,6 +72,7 @@ namespace procctrl {
       process.m_arguments = args;
       process.m_environement = env;
       process.m_pid = 0;
+      process.m_status = UNDEFINED;
 
       m_processes[name] = process;
     }
@@ -171,6 +173,13 @@ namespace procctrl {
         throw Exception(FAILURE, message.str());
       }
 
+    }
+
+    //----------------------------------------------------------------------------------
+
+    const ProcessMap &ProcessManager::getProcessMap() const
+    {
+      return m_processes;
     }
 
     //----------------------------------------------------------------------------------
@@ -280,14 +289,14 @@ namespace procctrl {
 
     //----------------------------------------------------------------------------------
 
-    unsigned int ProcessManager::getRegisteredProcesses() const
+    unsigned int ProcessManager::getNRegisteredProcesses() const
     {
       return m_processes.size();
     }
 
     //----------------------------------------------------------------------------------
 
-    unsigned int ProcessManager::getRegisteredProcesses(
+    unsigned int ProcessManager::getNRegisteredProcesses(
         const std::string &group
     ) const
     {
@@ -295,7 +304,7 @@ namespace procctrl {
 
       for(auto &j : m_processes)
         if(j.second.m_group == group)
-          nProcesses;
+          nProcesses++;
 
       return nProcesses;
     }
@@ -533,4 +542,3 @@ namespace procctrl {
 
   }
 }
-
