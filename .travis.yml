@@ -27,3 +27,6 @@ matrix:
       compiler: gcc
       env:
         - DIM_OS=Linux
+
+notifications:
+  email: false
