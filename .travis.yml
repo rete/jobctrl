@@ -11,15 +11,19 @@ os:
   - osx
 
 script:
-  - ./.travis.d/install_dependencies.sh
+  - ./.travis.d/install_dependencies.sh ${DIM_OS}
   - mkdir build
   - cd build
-  - cmake ..
+  - cmake -DDIMDIR=../dim/ ..
   - make install
 
 matrix:
   include:
     - os: osx
       compiler: gcc
+      env:
+        - DIM_OS: Darwin
     - os: linux
       compiler: clang
+      env:
+        - DIM_OS: Linux
