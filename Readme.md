@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.org/rete/procctrl.svg?branch=master)](https://travis-ci.org/rete/procctrl)
 # procctrl 
 
 ## A multi-host remote process management software
