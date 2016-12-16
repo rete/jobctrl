@@ -2,7 +2,7 @@ language: cpp
 
 sudo: not required
 
-compilers:
+compiler:
   - gcc
   - clang
 
@@ -22,8 +22,8 @@ matrix:
     - os: osx
       compiler: gcc
       env:
-        - DIM_OS: Darwin
+        - DIM_OS=Darwin
     - os: linux
       compiler: clang
       env:
-        - DIM_OS: Linux
+        - DIM_OS=Linux
