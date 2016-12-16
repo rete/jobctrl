@@ -5,28 +5,29 @@
  * Creation date : jeu. sept. 29 2016
  *
  * This file is part of procctrl libraries.
- * 
+ *
  * procctrl is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  * based upon these libraries are permitted. Any copy of these libraries
  * must include this copyright notice.
- * 
+ *
  * procctrl is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with procctrl.  If not, see <http://www.gnu.org/licenses/>.
- * 
+ *
  * @author Remi Ete
  * @copyright Remi Ete
  */
 
 
 #include "ProcessManagerServer.h"
+#include "Process.h"
 
 #include "json/json.h"
 
@@ -34,8 +35,8 @@ namespace procctrl {
 
   namespace server {
 
-    Rpc::Rpc(RpcListener *pListener, char *name, char *formatIn, char *formatOut) :
-            DimRpc(name, formatIn, formatOut),
+    Rpc::Rpc(RpcListener *pListener, const std::string &name) :
+            DimRpc(const_cast<char*>(name.c_str()), "C", "C"),
             m_pListener(pListener)
     {
       /* nop */
@@ -55,7 +56,8 @@ namespace procctrl {
             m_pProcessManager(0),
             m_pDbInterface(0),
             m_isInitialized(false),
-            m_stopFlag(0)
+            m_stopFlag(0),
+            m_timerPeriod(5)
     {
       char hname[80];
       gethostname(hname, 80);
@@ -133,54 +135,117 @@ namespace procctrl {
 
       DimServer::start((char*) serverName.str().c_str());
 
+      DimTimer::start(m_timerPeriod);
+
       while(!m_stopFlag)
         sleep(1);
+
+      DimTimer::stop();
     }
 
     //----------------------------------------------------------------------------------
 
-    void ProcessManagerServer::stop()
+    void ProcessManagerServer::stopServer()
     {
       m_stopFlag = 1;
     }
 
     //----------------------------------------------------------------------------------
 
+    void ProcessManagerServer::setWatchdogPeriod(unsigned int nSeconds)
+    {
+      if(nSeconds == 0)
+        throw Exception(INVALID_PARAMETER, "ProcessWatchDog::setTimePeriod: timer period can't be 0 !");
+
+      m_timerPeriod = nSeconds;
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::timerHandler()
+    {
+      try
+      {
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        const ProcessMap &processMap(m_pProcessManager->getProcessMap());
+
+        if(processMap.empty())
+          throw Exception(SUCCESS, "");
+
+        Json::Value processesJval;
+        unsigned int p = 0;
+
+        for(auto &iter : processMap)
+        {
+          Json::Value processJval;
+          iter.second.toJson(processJval);
+          processesJval[p] = processJval;
+          p++;
+        }
+
+        Json::FastWriter fastWriter;
+        m_serviceContent = fastWriter.write(processesJval);
+        m_pProcessStatusService->updateService(const_cast<char *>(m_serviceContent.c_str()));
+      }
+      catch(const Exception &exception)
+      {
+
+      }
+      catch(...)
+      {
+      }
+
+      // restart timer
+      DimTimer::start(m_timerPeriod);
+    }
+
+    //----------------------------------------------------------------------------------
+
     void ProcessManagerServer::allocateNetworkInterface()
     {
-      std::string baseRpcName("/procctrl/" + m_hostName + "/");
+      std::string baseName("/procctrl/" + m_hostName + "/");
       std::stringstream rpcName;
 
-      rpcName << baseRpcName << "kill";
-      m_pKillProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "kill";
+      m_pKillProcessRpc = new Rpc(this, rpcName.str());
 
       rpcName.str("");
-      rpcName << baseRpcName << "register";
-      m_pRegisterProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "register";
+      m_pRegisterProcessRpc = new Rpc(this, rpcName.str());
 
       rpcName.str("");
-      rpcName << baseRpcName << "remove";
-      m_pRemoveProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "remove";
+      m_pRemoveProcessRpc = new Rpc(this, rpcName.str());
 
       rpcName.str("");
-      rpcName << baseRpcName << "start";
-      m_pStartProcessRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "start";
+      m_pStartProcessRpc = new Rpc(this, rpcName.str());
 
       rpcName.str("");
-      rpcName << baseRpcName << "processlog";
-      m_pQueryProcessLogRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "processlog";
+      m_pQueryProcessLogRpc = new Rpc(this, rpcName.str());
 
       rpcName.str("");
-      rpcName << baseRpcName << "status";
-      m_pQueryProcessStatusRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "status";
+      m_pQueryProcessStatusRpc = new Rpc(this, rpcName.str());
 
       rpcName.str("");
-      rpcName << baseRpcName << "login";
-      m_pClientLoginRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "login";
+      m_pClientLoginRpc = new Rpc(this, rpcName.str());
 
       rpcName.str("");
-      rpcName << baseRpcName << "logout";
-      m_pClientLogoutRpc = new Rpc(this, const_cast<char *>(rpcName.str().c_str()), (char *) "C", (char *) "C");
+      rpcName << baseName << "logout";
+      m_pClientLogoutRpc = new Rpc(this, rpcName.str());
+
+      rpcName.str("");
+      rpcName << baseName << "dbHost";
+      m_pDbHostRpc = new Rpc(this, rpcName.str());
+
+      std::stringstream serviceName;
+      serviceName << baseName << "procwd";
+
+      m_pProcessStatusService = new DimService(const_cast<char*>(serviceName.str().c_str()), const_cast<char*>(m_serviceContent.c_str()));
     }
 
     //----------------------------------------------------------------------------------
@@ -195,12 +260,17 @@ namespace procctrl {
       delete m_pQueryProcessStatusRpc;
       delete m_pClientLoginRpc;
       delete m_pClientLogoutRpc;
+      delete m_pDbHostRpc;
+
+      delete m_pProcessStatusService;
     }
 
     //----------------------------------------------------------------------------------
 
     void ProcessManagerServer::processRpc(Rpc *pRpc)
     {
+      std::lock_guard<std::mutex> lock(m_mutex);
+
       if(pRpc == m_pKillProcessRpc)
         this->handleKillProcessRpc(pRpc);
 
@@ -224,6 +294,9 @@ namespace procctrl {
 
       if(pRpc == m_pClientLogoutRpc)
         this->handleClientLogoutRpc(pRpc);
+
+      if(pRpc == m_pDbHostRpc)
+          this->handleQueryDbHostRpc(pRpc);
     }
 
     //----------------------------------------------------------------------------------
@@ -281,8 +354,10 @@ namespace procctrl {
 
       if(pwdValid)
       {
-        client.m_group = group;
-        client.m_loggedIn = true;
+        std::cout << "Logged in group " << group << std::endl;
+
+        m_clients[clientId].m_group = group;
+        m_clients[clientId].m_loggedIn = true;
       }
       else
       {
@@ -310,8 +385,8 @@ namespace procctrl {
       }
       else
       {
-        client.m_loggedIn = false;
-        client.m_group = "";
+        m_clients[clientId].m_group = "";
+        m_clients[clientId].m_loggedIn = false;
       }
     }
 
@@ -373,6 +448,8 @@ namespace procctrl {
         std::string group = loginJval["group"].asString();
         std::string password = loginJval["password"].asString();
         int clientId = DimServer::getClientId();
+
+        std::cout << "id, group, pwd : " << clientId << "," << group << "," << password << std::endl;
 
         this->performClientLogging(clientId, group, password);
 
@@ -447,6 +524,9 @@ namespace procctrl {
       try
       {
         int clientId = DimServer::getClientId();
+
+        std::cout << "ProcessManagerServer::handleRegisterProcessRpc: client id : " << clientId << std::endl;
+
         bool clientRegistered(this->isClientRegistered(clientId));
         bool clientLoggedIn(false);
         Client client;
@@ -457,8 +537,21 @@ namespace procctrl {
           clientLoggedIn = client.m_loggedIn;
         }
 
+        std::cout << "ProcessManagerServer::handleRegisterProcessRpc: client registered : " << clientRegistered << std::endl;
+        std::cout << "ProcessManagerServer::handleRegisterProcessRpc: client clientLoggedIn : " << clientLoggedIn << std::endl;
+        std::cout << "ProcessManagerServer::handleRegisterProcessRpc: client group : " << client.m_group << std::endl;
+
         if(!clientRegistered || !clientLoggedIn)
           throw Exception(NOT_ALLOWED, "Couldn't add process ! Please login before registering any process.");
+
+        const std::string group(client.m_group);
+        const unsigned int nRegisteredProcesses(m_pProcessManager->getNRegisteredProcesses(group));
+        const unsigned int nMaximumProcesses(m_pDbInterface->getMaxServerNProcess(group));
+
+        if(nRegisteredProcesses == nMaximumProcesses)
+          throw Exception(NOT_ALLOWED, "Couldn't add process! "
+              "Maximum number of registered processes reached (" + std::to_string(nMaximumProcesses) + ") "
+                  "for group '" + group + "'" );
 
         Json::Value processJval;
         Json::Reader reader;
@@ -473,7 +566,7 @@ namespace procctrl {
         if(alreadyRegistered)
           throw Exception(ALREADY_EXISTS, "Couldn't add process ! Process already registered !");
 
-        const std::string group(client.m_group);
+
         const std::string program(processJval["program"].asString());
 
         ArgumentList args;
@@ -835,6 +928,43 @@ namespace procctrl {
       Json::FastWriter fastWriter;
       pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
     }
-  }
-} 
 
+    //----------------------------------------------------------------------------------
+
+    void ProcessManagerServer::handleQueryDbHostRpc(Rpc *pRpc)
+    {
+      std::stringstream message;
+      Json::Value anwserJval;
+
+      try
+      {
+        if(!this->m_isInitialized)
+          throw Exception(NOT_FOUND, "Server not yet initialized");
+
+        const std::string &dbHost(m_pDbInterface->getHost());
+
+        anwserJval["status"] = static_cast<int>(SUCCESS);
+        anwserJval["message"] = "";
+        anwserJval["dbHost"] = dbHost;
+      }
+      catch(const Exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(exception.getStatus());
+        anwserJval["message"] = exception.what();
+      }
+      catch(const std::exception &exception)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = exception.what();
+      }
+      catch(...)
+      {
+        anwserJval["status"] = static_cast<int>(FAILURE);
+        anwserJval["message"] = "Caught unknown exception on request ...";
+      }
+
+      Json::FastWriter fastWriter;
+      pRpc->setData(const_cast<char *>(fastWriter.write(anwserJval).c_str()));
+    }
+  }
+}

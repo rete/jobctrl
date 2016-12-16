@@ -38,6 +38,9 @@
 #include "dis.hxx"
 #include "dic.hxx"
 
+// -- std headers
+#include <mutex>
+
 namespace procctrl {
 
   namespace server {
@@ -86,9 +89,7 @@ namespace procctrl {
        */
       Rpc(
           RpcListener *pListener,
-          char *name,
-          char *formatIn,
-          char *formatOut
+          const std::string &name
       );
 
       /**
@@ -105,7 +106,7 @@ namespace procctrl {
     /**
      *  @brief  ProcessManagerServer class
      */
-    class ProcessManagerServer : public DimServer, public RpcListener
+    class ProcessManagerServer : public DimServer, public RpcListener, private DimTimer
     {
     public:
       /**
@@ -135,9 +136,19 @@ namespace procctrl {
        *  @brief  Stop the server application.
        *          Can be called in a signal handler function
        */
-      void stop();
+      void stopServer();
+
+      /**
+       *
+       */
+      void setWatchdogPeriod(unsigned int nSeconds);
 
     private:
+      /**
+       *  @brief  Callback function from dim timer
+       */
+      void timerHandler();
+
       /**
        *  @brief  Allocate the network interface (RPCs)
        */
@@ -224,6 +235,7 @@ namespace procctrl {
       void handleStartProcessRpc(Rpc *pRpc);
       void handleQueryProcessLogRpc(Rpc *pRpc);
       void handleQueryProcessStatusRpc(Rpc *pRpc);
+      void handleQueryDbHostRpc(Rpc *pRpc);
 
     private:
       ProcessManager*         m_pProcessManager;         ///< The process manager instance
@@ -233,7 +245,13 @@ namespace procctrl {
       std::string             m_hostName;                ///< The server host name
       volatile sig_atomic_t   m_stopFlag;                ///< The server stop flag
 
-      ClientMap               m_clients;                 ///< The registered client infos on this server
+      unsigned int           m_timerPeriod;
+      DimService*            m_pProcessStatusService;
+      std::string            m_serviceContent;
+
+      ClientMap              m_clients;                 ///< The registered client infos on this server
+
+      std::mutex             m_mutex;
 
       Rpc*                    m_pKillProcessRpc;         ///< The server rpc for killing a single process
       Rpc*                    m_pRegisterProcessRpc;     ///< The server rpc for registering a single process
@@ -243,6 +261,7 @@ namespace procctrl {
       Rpc*                    m_pQueryProcessStatusRpc;  ///< The server rpc for querying a single process status
       Rpc*                    m_pClientLoginRpc;         ///< The server rpc for logging in a client
       Rpc*                    m_pClientLogoutRpc;        ///< The server rpc for logging out a client
+      Rpc*                    m_pDbHostRpc;              ///< The server rpc for querying the db host
     };
 
   }
