@@ -27,10 +27,10 @@ matrix:
       compiler: clang
       env:
         - DIM_OS=Linux
-    - os: osx
-      compiler: clang
-      env:
-        - DIM_OS=Darwin
+    # - os: osx
+    #   compiler: clang
+    #   env:
+    #     - DIM_OS=Darwin
     - os: linux
       compiler: gcc
       env:
